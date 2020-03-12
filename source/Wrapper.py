@@ -64,7 +64,7 @@ def applyANMS(scoreMap, corners, image, numBest = 150):
     corners = np.hstack((y_best.reshape(-1,1),x_best.reshape(-1,1)))
     return corners,img
   
-def ransac(pts1, pts2, threshold = 2):
+def ransac(pts1, pts2, threshold = 5):
     Hfinal = np.zeros((3,3))
     maxInliers = 0
     for iters in range(100):
@@ -91,11 +91,29 @@ def ransac(pts1, pts2, threshold = 2):
             maxInliers = numInliers
             Hfinal = H
             
-            if maxInliers > 0.2 * len(pts1):
+            if maxInliers > 40 :
                 break
        
     return Hfinal
 
+def combine(img2, img1, H):
+
+    h1,w1 = img1.shape[:2]
+    h2,w2 = img2.shape[:2]
+    pts1 = np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2)
+    pts2 = np.float32([[0,0],[0,h2],[w2,h2],[w2,0]]).reshape(-1,1,2)
+    warpdPts = cv2.perspectiveTransform(pts2, H)
+    pts = np.vstack((pts1, warpdPts)).reshape(-1,2)
+    xmin, ymin = np.int32(pts.min(axis=0))
+    xmax, ymax = np.int32(pts.max(axis=0))
+    t = [-xmin,-ymin]
+    Ht = np.array([[1,0,t[0]],[0,1,t[1]],[0,0,1]])
+    result = cv2.warpPerspective(img2, Ht.dot(H), (xmax-xmin, ymax-ymin))
+#    cv2.imshow("Warped img2", result)
+#    cv2.waitKey(0)
+    result[t[1]:h1+t[1],t[0]:w1+t[0]] = img1
+
+    return result
 
 def stitch(img1, img2):
     imgs = [img1, img2]
@@ -109,17 +127,15 @@ def stitch(img1, img2):
     for corners, img in zip(cornersList, copy.deepcopy(imgs)):
         for corner in corners:
             cv2.circle(img,tuple(corner),2,(255,0,0), -1)
-        cv2.imshow("Detect Corners", img)
+#        cv2.imshow("Detect Corners", img)
 #        cv2.waitKey(0)
-    cv2.destroyAllWindows()
     
     anmsCornersList = []
     for scoreMap,  corners, img in zip(scoreMapList, cornersList, copy.deepcopy(imgs)):
-        newCorners,img = applyANMS(scoreMap, corners, img, 200)
+        newCorners,img = applyANMS(scoreMap, corners, img, 150)
         anmsCornersList.append(newCorners)
-        cv2.imshow("Apply ANMS", img)
+#        cv2.imshow("Apply ANMS", img)
 #        cv2.waitKey(0)
-    cv2.destroyAllWindows()
     
     detector = cv2.ORB_create(nfeatures=1500)
     descriptorsList = []
@@ -154,18 +170,28 @@ def stitch(img1, img2):
     
     print(H)
     
-    result = cv2.warpPerspective(img1, H,(img1.shape[1], img1.shape[0]))
+    test = cv2.warpPerspective(img1, H,(img1.shape[1], img1.shape[0]))
     
-    cv2.imshow("Warp", result)
-    cv2.waitKey(0)
+#    cv2.imshow("Warp", test)
+#    cv2.waitKey(0)
+    
+    combImg = combine(img1, img2,H)
+#    cv2.imshow("Final", combImg)
+#    cv2.waitKey(0)
+#    cv2.destroyAllWindows()
+    return combImg
 
 def main():
     
-    imgs = [cv2.imread(file) for file in glob.glob("../data/train/set1/*.jpg")]
+    imgs = [cv2.imread(file) for file in glob.glob("../data/train/set2/*.jpg")]
     
-    stitch(imgs[0], imgs[2])
-    
-    
+    result = imgs[0]
+    for i in range(1,len(imgs)):
+        result = stitch(result, imgs[i])
+    result = cv2.resize(result, (1000,1000))
+    cv2.imshow("Pano", result)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     
 if __name__ == '__main__':
