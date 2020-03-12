@@ -15,10 +15,10 @@ def corner_score(img):
 
     gray = np.float32(gray)
     
-    dst = cv2.cornerHarris(gray,2,3,0.04)
+    dst = cv2.cornerHarris(gray,5,3,0.04)
     
     
-    minVal = 0.001* dst.max()
+    minVal = 0.0005* dst.max()
     
     cScoreMap = np.where(dst <= minVal, 0, dst)
     
@@ -60,8 +60,9 @@ def applyANMS(scoreMap, corners, image, numBest = 150):
         x_best[i] = np.int0(x[ind[i]])
         y_best[i] = np.int0(y[ind[i]]) 
         cv2.circle(img,(y_best[i],x_best[i]),3,255,-1)
-           
-    return x_best,y_best,img
+     
+    corners = np.hstack((y_best.reshape(-1,1),x_best.reshape(-1,1)))
+    return corners,img
     
 
 def main():
@@ -78,19 +79,28 @@ def main():
     for corners, img in zip(cornersList, copy.deepcopy(imgs)):
         for corner in corners:
             cv2.circle(img,tuple(corner),2,(255,0,0), -1)
-        cv2.imshow("img", img)
-        cv2.waitKey(0)
+        cv2.imshow("Detect Corners", img)
+#        cv2.waitKey(0)
     cv2.destroyAllWindows()
     
-
+    anmsCornersList = []
     for scoreMap,  corners, img in zip(scoreMapList, cornersList, copy.deepcopy(imgs)):
-        x,y,img = applyANMS(scoreMap, corners, img, 200)
-        cv2.imshow("anms", img)
+        newCorners,img = applyANMS(scoreMap, corners, img, 200)
+        anmsCornersList.append(newCorners)
+        cv2.imshow("Apply ANMS", img)
         cv2.waitKey(0)
     cv2.destroyAllWindows()
     
-    
-    
+    detector = cv2.ORB_create(nfeatures=1500)
+    descriptorsList = []
+    for corners, img in zip( anmsCornersList, copy.deepcopy(imgs)):
+        img  = cv2.GaussianBlur(img,(3,3),0)
+        gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+        kp = [cv2.KeyPoint(corner[0], corner[1], 5) for corner in corners]
+#        kp = detector.detect(gray,None)
+        kp, des = detector.compute(gray, kp)
+        descriptorsList.append(des)
+
     
 if __name__ == '__main__':
     main()
