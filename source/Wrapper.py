@@ -63,12 +63,42 @@ def applyANMS(scoreMap, corners, image, numBest = 150):
      
     corners = np.hstack((y_best.reshape(-1,1),x_best.reshape(-1,1)))
     return corners,img
-    
+  
+def ransac(pts1, pts2, threshold = 2):
+    Hfinal = np.zeros((3,3))
+    maxInliers = 0
+    for iters in range(100):
+        ndxs = [np.random.randint(0,len(pts1)) for i in range(4)]
+        p1 = pts1[ndxs]
+        p2 = pts2[ndxs]
+        
+        H = cv2.getPerspectiveTransform(np.float32(p1), np.float32(p2))
+        numInliers = 0
+        for pt1, pt2 in zip(pts1, pts2):
+            fromPt = np.array(pt1)
+            toPt = np.array(pt2)
+            newPt = np.dot(H, np.array([fromPt[0],fromPt[1],1]))
+            
+            if newPt[2]!=0:
+                newPt/=newPt[2]
+            else:
+                newPt/1e-8
+            
+            diff = np.linalg.norm(toPt - newPt[:2])
+            if diff < threshold:
+                numInliers+=1
+        if maxInliers < numInliers:
+            maxInliers = numInliers
+            Hfinal = H
+            
+            if maxInliers > 0.2 * len(pts1):
+                break
+       
+    return Hfinal
 
-def main():
-    
-    imgs = [cv2.imread(file) for file in glob.glob("../data/train/set1/*.jpg")]
-    
+
+def stitch(img1, img2):
+    imgs = [img1, img2]
     scoreMapList = []
     cornersList = []
     for img in imgs:
@@ -88,11 +118,12 @@ def main():
         newCorners,img = applyANMS(scoreMap, corners, img, 200)
         anmsCornersList.append(newCorners)
         cv2.imshow("Apply ANMS", img)
-        cv2.waitKey(0)
+#        cv2.waitKey(0)
     cv2.destroyAllWindows()
     
     detector = cv2.ORB_create(nfeatures=1500)
     descriptorsList = []
+    kpList = []
     for corners, img in zip( anmsCornersList, copy.deepcopy(imgs)):
         img  = cv2.GaussianBlur(img,(3,3),0)
         gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
@@ -100,6 +131,41 @@ def main():
 #        kp = detector.detect(gray,None)
         kp, des = detector.compute(gray, kp)
         descriptorsList.append(des)
+        kpList.append(kp)
+    
+    # create BFMatcher object
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    
+    # Match descriptors.
+    matches = bf.match(descriptorsList[0],descriptorsList[1])
+    
+    # Sort them in the order of their distance.
+    matches = sorted(matches, key = lambda x:x.distance)
+    
+    # Draw first 10 matches.
+    img3 = cv2.drawMatches(img1,kpList[0],img2,kpList[1],matches[:10], None)
+    plt.imshow(img3)
+    plt.show()
+    
+    pts1 = np.float32([kpList[0][m.queryIdx].pt for m in matches])
+    pts2 = np.float32([kpList[1][m.trainIdx].pt for m in matches])
+    
+    H = ransac(pts1, pts2)
+    
+    print(H)
+    
+    result = cv2.warpPerspective(img1, H,(img1.shape[1], img1.shape[0]))
+    
+    cv2.imshow("Warp", result)
+    cv2.waitKey(0)
+
+def main():
+    
+    imgs = [cv2.imread(file) for file in glob.glob("../data/train/set1/*.jpg")]
+    
+    stitch(imgs[0], imgs[2])
+    
+    
 
     
 if __name__ == '__main__':
